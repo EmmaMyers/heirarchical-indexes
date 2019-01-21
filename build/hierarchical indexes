@@ -1,0 +1,306 @@
+import pandas as pd  # panda's nickname is pd
+import numpy as np  # numpy as np
+from pandas import DataFrame, Series, Categorical 
+from sqlalchemy import create_engine
+
+yzcustnew=pd.read_sql_table('xyzcust',engine)
+
+heavyCut= 423  #heavyCut is a constant
+
+heavyCat=Categorical(np.where(xyzcustnew.YTD_SALES_2009>heavyCut,1,0))
+heavyCat.describe()
+
+heavyCat.rename_categories(['regular','heavy'],inplace=True)
+heavyCat.describe()
+
+heavyCat[:10]
+
+xyzcustnew['heavyCat']=heavyCat
+buyerType=pd.get_dummies(heavyCat)
+buyerType[:3]
+
+xyzcustnew['typeReg']=buyerType['regular']
+xyzcustnew['typeHeavy']=buyerType['heavy']
+xyzcustnew.columns
+
+# for this exercises we need to create trCountsChrono object similar to what we did in exercises #8
+
+xyztrans=pd.read_sql('xyztrans', engine)
+trandate=xyztrans.TRANDATE	# should be a Series
+daystr=trandate.str[0:2]		# two digit date numbers slice
+mostr=trandate.str[2:5]		# the three letter month abbreviations
+yearstr=trandate.str[5:]		# four digit years
+
+#create a dictionary for the months
+monums={'JAN':'1', 'FEB':'2', 'MAR':'3', 'APR':'4', 'MAY':'5', 'JUN':'6', 'JUL':'7', 'AUG':'8', 'SEP':'9', 'OCT':'10', 'NOV':'11','DEC':'12'}
+#month
+monos=mostr.map(monums)	# do a dict lookup for each value of mostr
+transtr=yearstr+'-'+monos+'-'+daystr
+
+#transtr should be a Series.  
+#Now let's convert the string values in transtr into datetime values:
+
+trDateTime=pd.to_datetime(transtr)
+trCounts=trDateTime.value_counts()
+
+#The order of the counts in trDateTime is not chronological, 
+#so let's reorder them so that they go from earliest to most recent date.
+
+newIndex=pd.date_range(trCounts.index.min(),trCounts.index.max())
+trCountsChrono=trCounts.reindex(index=newIndex)
+
+print(trCountsChrono.head())
+
+#One of the very handy things you can do with pandas DataFrames and Series is that you can create what are called hierarchical 
+#indexes.  These are multi-level indexes (the are in fact called MultiIndexes).  They make it easier to select, modify, group,
+#and reshape data in a wide variety of ways.  They make it possible to work with high dimensional data in data structures that 
+#are in just one or two dimensions.
+
+#Let's change trCountsChrono a bit to produce a first simple example of a Series with a hierarchical index.  
+#First, let's put the Series into a DataFrame and then rename the columns:
+
+#One of the very handy things you can do with pandas DataFrames and Series is that you can create what are called hierarchical 
+#indexes.  These are multi-level indexes (the are in fact called MultiIndexes).  They make it easier to select, modify, group, 
+#and reshape data in a wide variety of ways.  They make it possible to work with high dimensional data in data structures that
+#are in just one or two dimensions.
+
+#Let's change trCountsChrono a bit to produce a first simple example of a Series with a hierarchical index.  
+#First, let's put the Series into a DataFrame and then rename the columns:
+
+trDF=DataFrame()      
+trDF['date'] = trCountsChrono.index
+trDF['transactions'] = trCountsChrono.values
+trDF.columns
+
+trDF.head()
+
+#Note that the data types of the columns have not changed.  Try trDF.dtypes.
+#Now, let's create a new column that indicates whether the number of daily transactions are heavy or light depending on 
+#whether the are equal to or greater than the median number of transactions, or less than the median number.  
+#There are more succinct ways to do this, but this is transparent, if not efficient:
+
+trMed=trDF.transactions.median()		# here's the median
+
+heavyLight=lambda x  : x >= trMed and 'heavy' or 'light'  # an example anon function
+
+trDF['vol']=trDF.transactions.map(heavyLight)	# 'vol' is the heavy/light column
+
+#Note that this lambda would stumble if trMed wasn't known at the time lambda was called by the map method.
+#Anyway, next we're going to create, monum, a variable indicating the month of the calendar year that each day falls into:
+
+trDF['monum']=trDF.date.dt.month	# .dt is the datetime accessor
+
+#Next, we're going to collapse the daily transaction counts into monthly counts. 
+#When we do this we'll keep the heavy versus light daily volume distinction.  
+#First we're going to drop the 'date' column because we no longer need it.  
+#To be safe we'll copy the result to a new DataFrame just in case something goes wrong:
+
+trDFnd=trDF.drop('date',axis=1)	# axis=1 means here a column is selected to drop
+
+#Now using this DataFrame's groupby() method,  sum up the transactions within month by heavy volume days and light volume days:
+
+trDFgrouped=trDFnd.groupby(['monum','vol']).sum()
+
+#Now if you look at this DataFrame you'll see that it has two levels of indexing, monum, and within the levels of monum, vol.   If you enter trDFgrouped.index you'll get back a MultiIndex object.  
+#Also, try trDFgrouped.index.levels to see what you get. 
+#pandas has pretty seamlessly created this index for you, but you can construct MultiIndexes manually by combining equal length 
+#arrays (using MultiIndex.from_arrays) of index levels, or by using tuples (with MultiIndex.from_tuples).  
+#In both cases all combinations of the levels need to be included.  
+#Or, you can use MultiIndex.from_product to get a cross set of the values of iterables.   
+
+#Note that if you look at trDFgrouped you may see here and there that for a particular month, 
+#the number of heavy day transactions is less than the number of light day transactions.  
+#How do you think that could happen?
+
+#You can use MultiIndexes to select and subset DataFrames and Series in many of the same ways you can use simple indexes.  
+#For example, to get the heavy days transaction count data for November, you can do:
+
+trDFgrouped.loc[11,'heavy']
+
+#The first six months of data:
+trDFgrouped.loc[list(range(1,7))]
+
+#or the first 6 rows of data:
+trDFgrouped.iloc[0:6]		# .iloc here, but .loc above.
+
+#The data starting from the March heavy day counts to the July light counts:
+trDFgrouped[(3,'light'):(7,'heavy')]
+
+#The above uses a range defined by a slice of tuples.  So does:
+trDFgrouped[(3,'light'):6]
+
+#Try selecting some data and slicing a few times yourself.  
+#It takes a little practice to get the hang of getting what you want.
+#There are many other ways to slice using MultiIndexes.  
+#One other you might find interesting is the cross-section method .xs. 
+#Here's an example that picks out data for the light days:
+
+trDFgrouped.xs('light',level='vol')
+
+#As you probably know, DataFrames have a transpose method, .T:
+trDFgrouped.xs('light',level='vol').T		# the transpose of the above
+
+#Did you get a table of transactions with cells labeled by monum across the top?
+
+#You can also pivot DataFrames in various ways.  Let's make some data to create a DataFrame we can pivot.  We'll put the 
+#monum and vol indexes from trDFgrouped into our new DataFrame as columns, and then we'll add transactions as a third column.
+
+mo=trDFgrouped.index.get_level_values(0) 	# the month numbers
+volType=trDFgrouped.index.get_level_values(1)	# vol
+trDFpiv=DataFrame({'month':mo,'vol': volType, 'transactions':trDFgrouped.transactions})		# data as a dict
+
+#Now, let's pivot trDFpiv.  
+#Let's make a new DataFrame with month as the index, vol the columns, and the transaction counts as the values:
+
+trDFpived=trDFpiv.pivot(index='month',columns='vol',values='transactions')
+
+#How does trDFpived look to you?
+
+#If trDFpiv had more than one column for values not used as a column or an index, hierarchical columns would be created to 
+#reflect them. 
+#For example, let's add an additional column to trDFpiv:
+
+trDFpiv['randy']=np.random.randn(len(trDFpiv))
+
+#Now pivot trDFpiv like:
+trDFpived2=trDFpiv.pivot(index='month',columns='vol')
+
+#How does trDFpived2 look? 
+#OK, let's drop randy from trDFpiv and try some other things. 
+#Feeling lucky?  Then do trDFpiv.drop('randy',axis=1,inplace=True).
+#You can also stack and unstack DataFrames.  These methods come in handy when you need to shape some data in a particular way to be input to an algorithm.  Let's aggregate some of the xyzcustnew data (see above) to get a DataFrame we can stack and unstack:
+xyzdata=xyzcustnew[['BUYER_STATUS','heavyCat','CHANNEL_ACQUISITION']]
+
+#Use xyzdata because it's just easier.  It has just the three columns we're now going to work with.
+xyzgrouped=xyzdata.groupby(['BUYER_STATUS','heavyCat','CHANNEL_ACQUISITION'])
+
+xyzCountData = xyzgrouped.size()	# a MultiIndexed Series of counts
+
+print(xyzCountData.unstack())
+
+#xyzCountData is a Series with a MultiIndex, and so it can be unstacked, changing it from tall and narrow to short and wide.  
+#Note that by default, only the lowest level of the MultiIndex is used for unstacking.  
+#Do you know why there are no heavy buyers in the INACTIVE or LAPSED categories?
+
+#Let's “restack” this into a different version of xyzCountData:
+unStackxyz=xyzCountData.unstack()		# what we had just above
+
+unStackxyz.T.stack()		# .T is the transpose 
+
+#Note how in the above, combinations of the levels of the three variables that do not actually occur in the data are given an 
+#NaN, a missing value.  
+#NaN means “not a number.”  The cells are stacked using levels of BUYER_STATUS within levels of CHANNEL_ACQUISITION.
+#Try doing unStackxyz.T.stack(1) to get stacking by heavyCat instead of by BUYER_STATUS. Here again, 
+#cells do not have observations are given a NaN.
+#The unstack method can return a stacked object as it was when it was stacked, 
+#but it can also return it in a different unstacked form.  For example, see what this does:
+unStackxyz.T.stack(0).unstack(1)
+
+#You can stack or unstack on multiple levels at one time.  See what this does for you:
+
+unStackxyz.T.stack(level=['heavyCat','BUYER_STATUS'])
+
+#and compare to:
+unStackxyz.T.stack(level=['BUYER_STATUS','heavyCat'])
+
+#The pandas melt() method provides some similar functionality.  
+#You can use it to turn a short and wide DataFrame into a taller, narrower one by identifying columns that contain values to 
+#be used as record identifiers.   Let's go back to the xyzcustnew data and select a few columns from it to do some melting on:
+
+xyzcust=xyzcustnew[['BUYER_STATUS','heavyCat','LTD_SALES']].copy()
+
+#Now, let's melt xyzcust so that BUYER_STATUS and heavyCat become identifiers:
+
+xyzcustm=pd.melt(xyzcust,id_vars=['BUYER_STATUS','heavyCat'],var_name="LTD_SALES")
+
+#xyzcustm will look something like:
+
+print(xyzcustm)
+
+#You'll probably realize that the leftmost column is a simple numerical index that this pandas method created.  
+#There's a pandas method called wide_to_long that works similarly, but can be a little easier to use. 
+#Give it a try using xyzcust or the DataFrame of your choice.
+
+#So at this point we've pivoted, grouped, and reshaped.  The pivoting example we did was pretty simple.  
+#pandas also provides a method called pivot_table that provides considerable flexibility in terms of how data can be 
+#reorganized and summarized.  Let's consider the xyzcustnew data once again.  
+#Suppose we want to average YTD_SALES_2009 by BUYER_STATUS, CHANNEL_ACQUISITION, and heavyCAT.  
+#WE could do:
+pd.pivot_table(xyzcustnew,values='YTD_SALES_2009',index=['BUYER_STATUS','heavyCat'],columns=['CHANNEL_ACQUISITION'])
+
+#Do you see some rows in the result that only have zeros?  Why are they there?
+#Or, try doing:
+pd.pivot_table(xyzcustnew,values='YTD_SALES_2009',index=['BUYER_STATUS'],columns=['heavyCat','CHANNEL_ACQUISITION'])
+
+#Why are there NaN's?
+#pivot_table defaults to taking the mean (using np.mean) of the groups it defines.  
+#If you want some other aggregation instead, you can define it as a keyword parameter, e.g. aggfunc=np.sum:
+pd.pivot_table(xyzcustnew,values='YTD_SALES_2009',index=['BUYER_STATUS'],columns=['heavyCat','CHANNEL_ACQUISITION'],aggfunc=np.sum)
+
+#You can also add margins to pivot_tables by using the margins=True option.  For example, to get row and column totals:
+pd.pivot_table(xyzcustnew,values='YTD_SALES_2009',index=['BUYER_STATUS'],columns=['heavyCat','CHANNEL_ACQUISITION'],aggfunc=np.sum,margins=True)
+
+#Should give you the same table as above but with row and column totals added.
+#It has probably dawned on you that you can manipulate data objects in many different ways to group them and to apply 
+#descriptive statistics to them.   
+#Let's group xyz customers using BUYER_STATUS and heavyCat:
+xyzGrouper=xyzcustnew.groupby(['BUYER_STATUS','heavyCat'])
+
+#groupby can apply conventional as well as custom functions to aggregated data.  For example:
+xyzGrouper.agg({'YTD_SALES_2009': [np.mean, np.std],'LTD_SALES':[np.mean,np.std]})
+
+#calculates the mean and standard deviation of YTD_SALES_2009 and LTD_SALES for each of the groups defined in xyzGrouper.  
+#Note the little dict with a couple of key/value pairs there in the curly brackets, the {}.
+#Try using a version of this command to get statistics for the columns YTD_TRANSACTIONS_2009 and LTD_TRANSACTIONS.  
+#These are both count variables.  What descriptive statistics do you think are appropriate for summarizing them?
+#Note that you can apply custom functions to data aggregates.  
+#Suppose we wanted to compute the coefficient of variation,,”CV,” for data.  
+#The CV is a standardized measure of dispersion, and is the ratio of the standard deviation to to the mean.  
+#It's estimated by the ratio  of the estimates of these two statistics.  We could write our own function do do this:
+
+def coefV(x):                       # a baby CV function that accepts a sequence
+    return np.std(x)/np.mean(x)
+
+#This will work assuming that the mean and std numpy methods are available in this function's namespace, of course.  
+#Note that our baby function doesn't do anything smart regarding missing values and other inconveniences, 
+#but it's good enough to demonstrate what we want, here.  What do you think it means if what it produces is negative?  
+#How could that happen?
+#We can apply this function to selected groups.  Here we apply it to customers grouped by BUYER_STATUS.  
+#Let's first get a simpler DataFrame to fiddle with:
+buyerStats=xyzcustnew[['BUYER_STATUS','LTD_SALES','LTD_TRANSACTIONS']]
+buyerGrouper=buyerStats.groupby(['BUYER_STATUS'])
+buyerGrouper.agg(coefV)
+
+#Did you get a table of CV's?  
+#We could combine our own function or functions with existing functions and apply them on a group by group basis.  
+#Let's play with a function that returns 5th and 95th percentiles of some data:
+def ptiles(x):
+    p5=np.percentile(x,5)
+    p95=np.percentile(x,95)
+    return p5, p95
+    
+#There's our toy function.   coefV, it may break with “bad” data.  (So, watch out.)
+#What kind of object does ptiles return?
+#Now, applying np.mean and ptiles:
+buyerGrouper.agg([np.mean, ptiles])
+
+buyerGrouper.agg([np.mean,ptiles]).loc['ACTIVE','LTD_SALES']
+
+# trDFgrouped data 
+trDFgrouped[(5,'heavy'):(8,'heavy')]
+
+#xyz customers grouped by BUYER_STATUS, heavyCat, and ZIP 
+xyzGrouper=xyzcustnew.groupby(['BUYER_STATUS','heavyCat','ZIP'])
+xyzGrouper.agg({'YTD_SALES_2009': [np.sum],'LTD_SALES':[np.sum]})
+
+
+
+
+
+
+
+
+
+
+
+
